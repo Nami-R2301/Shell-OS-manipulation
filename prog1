@@ -1,0 +1,10 @@
+#!/bin/sh
+echo "Bonjour"
+sleep .2
+echo "Message d'erreur" >&2
+sleep .2
+echo "Le"
+sleep .2
+echo "Monde"
+sleep .2
+echo "Message d'erreur de fin" >&2

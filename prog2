@@ -1,0 +1,13 @@
+#!/bin/sh
+
+sleep .1
+echo -n "Hello"
+sleep .2
+echo -n "First error" >&2
+sleep .2
+echo -n "World"
+sleep .2
+echo -n "2nd World"
+sleep .2
+echo -n "Last error" >&2
+exit 1

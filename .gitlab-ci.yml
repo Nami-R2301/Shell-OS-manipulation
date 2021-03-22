@@ -1,0 +1,29 @@
+image: gcc:9
+
+stages:
+  - build_stage
+  - test_stage
+
+build:
+  stage: build_stage
+  script:
+    - make
+  artifacts:
+    paths:
+      - pat
+    expire_in: 30 mins
+
+test:
+  stage: test_stage
+  allow_failure: true
+  script:
+    - ( git clone https://github.com/bats-core/bats-core.git -b v1.0.0 && cd bats-core && ./install.sh /usr/local )
+    - make check
+
+
+test-local:
+  stage: test_stage
+  script:
+    - ( git clone https://github.com/bats-core/bats-core.git -b v1.0.0 && cd bats-core && ./install.sh /usr/local )
+    - make
+    - ./local.bats
