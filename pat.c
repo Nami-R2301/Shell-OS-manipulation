@@ -27,10 +27,10 @@ typedef struct pat_s {
     int nbrArgs;
 } pat_t;
 
-void cmds(char **, const int *, pat_t *, int);
+void cmds(char **, const int *, pat_t *);
 void execCmds(pat_t *pat);
 void pPoll(pat_t *pat);
-int monitorStd(pat_t *, int, char **);
+int forking(pat_t *pat, int, char **argv);
 void polling(pat_t *);
 void printStat(int retour, pat_t *pat);
 void exitStd(pat_t *);
@@ -49,27 +49,61 @@ int main(int argc, char *argv[]) {
     }
     if(argc - pat->option > 2) pat->nbrArgs = argc;
     int retour;
-    retour = monitorStd(pat, argc, argv);
+    retour = forking(pat, argc, argv);
     free(pat);
     return retour;
 }
 
-void cmds(char **argv, const int *args, pat_t *pat, int numCmd) {
+void cmds(char **argv, const int *args, pat_t *pat) {
 
     pat->newCmd = realloc(pat->newCmd, strlen(argv[0]) * *args);
     if(!pat->newCmd) {
         perror("Erreur de mémoire! (malloc/calloc/realloc)");
         _exit(1);
     }
-    for (int i = 0; i + numCmd < *args; ++i) {
-        if (strcmp(argv[i + numCmd], pat->delim) != 0) {
-            pat->newCmd[i] = argv[i + numCmd];
+    for (int i = 0; i + pat->posDelD < *args; ++i) {
+        if (strcmp(argv[i + pat->posDelD], pat->delim) != 0) {
+            pat->newCmd[i] = argv[i + pat->posDelD];
             pat->posDelF++;
         } else {
             pat->newCmd[i] = (char*)NULL;
             break;
         }
     }
+}
+
+int forking(pat_t *pat, const int argc, char **argv) {
+
+    int retour = 0;
+    pPoll(pat);
+    pid_t pid = fork();
+
+    if (pid == -1) { perror("Erreur fatale survenu!"); retour = 1; }
+    else if (pid > 0) {
+        polling(pat);
+        exitStd(pat);
+        if(waitpid(0,&pid,0) != -1) retour = WEXITSTATUS(pid);
+    } else if(pid == 0) {
+        for (int i = 1 + pat->option; i < argc; ++i) {
+            pat->posDelF = 0;
+            pat->posDelD = i;
+            cmds(argv, &argc, pat);
+            i += pat->posDelF;
+            pid = fork();
+            if(pid == 0) execCmds(pat);
+        }
+        while(waitpid(0,&pid,0) != -1) {
+            if (WIFSIGNALED(pid)) {
+                pat->sig = 128 + WTERMSIG(pid);
+                retour += pat->sig;
+            }  else if(WIFEXITED(pid)) retour += WEXITSTATUS(pid);
+            printStat(WEXITSTATUS(pid), pat);
+            pat->sig = 0;
+        }
+        exitStd(pat);
+        return retour;
+    } else retour = -3;
+    return retour;
 }
 
 void execCmds(pat_t *pat) {
@@ -84,45 +118,6 @@ void execCmds(pat_t *pat) {
         free(pat);
         _exit(127);
     }
-}
-
-int monitorStd(pat_t *pat, const int argc, char **argv) {
-
-    int retour = 0;
-    pPoll(pat);
-    pid_t pid = fork();
-
-    if (pid == -1) { perror("Erreur fatale survenu!"); return 1; }
-    if (pid > 0) {
-        polling(pat);
-        exitStd(pat);
-        if(waitpid(0,&pid,0) != -1) return WEXITSTATUS(pid);
-    } else {
-        for (int i = 1 + pat->option; i < argc; ++i) {
-            pat->posDelF = 0;
-            pat->posDelD = i;
-            cmds(argv, &argc, pat, pat->posDelD);
-            i += pat->posDelF;
-            pid = fork();
-            if(pid == 0) execCmds(pat);
-            if(pat->nbrArgs > 0) {
-                char *numArg = malloc(sizeof(i) + 15);
-                if(read(1, numArg, strlen(numArg)) > 0) printf("%d\n", i);
-            }
-        }
-        while(waitpid(0,&pid,0) != -1) {
-            if (WIFSIGNALED(pid)) {
-                pat->sig = 128 + WTERMSIG(pid);
-                retour += pat->sig;
-            }  else if(WIFEXITED(pid)) retour += WEXITSTATUS(pid);
-            printStat(WEXITSTATUS(pid), pat);
-            pat->sig = 0;
-        }
-        close(pat->stdO[1]); close(pat->stdE[1]);
-        close(pat->stdO[0]); close(pat->stdE[0]);
-        return retour;
-    }
-    return -3;
 }
 
 void printStat(int retour, pat_t *pat) {
