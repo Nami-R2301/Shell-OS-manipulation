@@ -14,6 +14,7 @@
  * Prénom: Nami
  * ********************* */
 
+//TODO
 //typedef struct pollfds_s {
 //   struct pollfd *fds[3];
 //} pollfds_t;
@@ -72,7 +73,6 @@ int main(int argc, char *argv[]) {
             exitStd(pat, 0);
         }
     }
-    for(int i = 0; i < pat->nbrCmds; ++i) free(pat->newCmd[i]);
     free(pat->newCmd);
     free(pat);
     return retour;
@@ -80,11 +80,13 @@ int main(int argc, char *argv[]) {
 
 void readCmds(char **argv, const int *args, pat_t *pat) {
 
-    pat->newCmd = calloc(*args, strlen(argv[0]) * 255);
+    if(pat->newCmd) free(pat->newCmd);
+    pat->newCmd = calloc(*args, strlen(argv[0]));
     if(!pat->newCmd) exitMain(pat, NULL);
 
     for (int i = 0; i + pat->posDelD < *args; ++i) {
         if (strcmp(argv[i + pat->posDelD], pat->delim) != 0) {
+            pat->newCmd[i] = (char *) {""};
             pat->newCmd[i] = argv[i + pat->posDelD];
             pat->posDelF++;
         } else break;
@@ -95,7 +97,7 @@ void readCmds(char **argv, const int *args, pat_t *pat) {
 int forking(pat_t *pat, int argc, char **argv) {
 
     int retour = 0;
-    int nbrCmds = pat->nbrCmds;
+    //int nbrCmds = pat->nbrCmds;
     pid_t neveu;
     for (int i = 1 + pat->option; i < argc; ++i) {
         pat->posDelF = 0;
@@ -173,6 +175,7 @@ void polling(pat_t *pat) {
             flagO = true;
         }
         if (pat->fds[2].revents & POLLIN) {
+            if(fflush(stdout) != 0) exitMain(pat, sep);
             flagO = false;
             size = read(pat->stdErr[0], buf, sizeof(buf));
             if(size > 0) {
