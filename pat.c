@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     pat_t *pat = malloc(sizeof(struct pat_s));
-    if(!pat) exitMain(pat, NULL);
+    if(!pat) exitMain(NULL, NULL);
     *pat = (struct pat_s) {0, "+", 0, NULL, 0, {0}, {0}, {0}, {0}, 0, 0};
     if (strcmp(argv[1], "-s") == 0 && strlen(argv[2]) >= 1) {
         pat->delim = argv[2];
@@ -231,12 +231,9 @@ void exitStd(pat_t *pat, int i) {
 
 void exitMain(pat_t *pat, char *heapV) {
 
-    if(pat->newCmd) {
-        for (int i = 0; i < pat->nbrCmds; ++i) free(pat->newCmd[i]);
-        free(pat->newCmd);
-    }
+    if(pat->newCmd) free(pat->newCmd);
     if(heapV) free(heapV);
-    free(pat);
+    if(pat) free(pat);
     perror("Erreur fatale!");
     _exit(1);
 }
