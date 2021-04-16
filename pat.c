@@ -51,10 +51,10 @@ void polling(pat_t *);
 //Récupere les codes de retour des commandes ainsi que les signaux puis les transmets au parent via stdExit[1].
 void printExit(int retour, pat_t *pat);
 
-//Sert a.
+//Sert a généraliser les étapes de fermeture du programme en cas d'erreur (exit(1)).
 void exitMain(pat_t *, char *);
 
-//Aquiesce les données affichées par les sorties des commandes évaluées et les transmet au parent en parallele.
+//Sert a généraliser les étapes de fermeture des tubes dépendemment du thread appelant (parent/enfant/neveu).
 void exitStd(pat_t *, int);
 
 int main(int argc, char *argv[]) {
@@ -71,21 +71,21 @@ int main(int argc, char *argv[]) {
         pat->option = 2;
     }
     pPoll(pat);
-    int retour = 1;
+    int retour = 1; //Code de retour de "pat".
     pid_t pid = fork();
     if(pid == -1) exitMain(pat, NULL);
     if(pid == 0) {
-        exitStd(pat, 0);
-        retour = forking(pat, argc, argv);
+        exitStd(pat, 0); //Fermeture des tubes "read (stdin)" de l'enfant.
+        retour = forking(pat, argc, argv); //Somme des codes de retour des commandes.
     }
     else {
-        exitStd(pat, 1);
-        polling(pat);
-        if(waitpid(0,&pid,0) != -1) {
+        exitStd(pat, 1); //Fermeture des tubes "write (stdout)" du parent.
+        polling(pat); //Attentes des événements de l'enfant.
+        if(waitpid(0,&pid,0) != -1) { //Assurer que tout est terminer avant de retourner.
             fflush(stdout);
             if(WIFEXITED(pid)) retour = WEXITSTATUS(pid);
             if(WIFSIGNALED(pid)) retour += WTERMSIG(pid);
-            exitStd(pat, 0);
+            exitStd(pat, 0); //Fermeture des tubes "read (stdin)" du parent.
         }
     }
     free(pat->newCmd);
@@ -111,29 +111,29 @@ void readCmds(char **argv, const int *args, pat_t *pat) {
 
 int forking(pat_t *pat, int argc, char **argv) {
 
-    int retour = 0;
+    int retour = 0; //Somme des codes de retour des commandes.
     //int nbrCmds = pat->nbrCmds;
     pid_t neveu;
     for (int i = 1 + pat->option; i < argc; ++i) {
         pat->posDelF = 0;
-        pat->posDelD = i;
+        pat->posDelD = i; //Indice de début de commande.
         readCmds(argv, &argc, pat);
-        i += pat->posDelF;
+        i += pat->posDelF; //Indice de fin de commande.
         neveu = fork();
         if(neveu == -1) exitMain(pat, NULL);
         if (neveu == 0) execCmds(pat);
     }
-    while(waitpid(-1, &neveu, 0) != -1) {
+    while(waitpid(-1, &neveu, 0) != -1) { //Parent des neveux (Enfant) attend que tous les neveux terminent.
         if (WIFSIGNALED(neveu)) {
             pat->sig = WTERMSIG(neveu);
             retour += 128 + pat->sig;
         }else if(WIFEXITED(neveu)) retour += WEXITSTATUS(neveu);
-        printExit(WEXITSTATUS(neveu), pat);
+        printExit(WEXITSTATUS(neveu), pat); //Envoie vers "pat->stdExit[1]".
         pat->sig = 0;
         //nbrCmds--;
         //if(nbrCmds == 0) {
     }
-    exitStd(pat, 1);
+    exitStd(pat, 1); //Fermeture des tubes "write (stdout)" de l'enfant.
     return retour;
 }
 
@@ -154,20 +154,21 @@ void printExit(int retour, pat_t *pat) {
     char *exit = malloc(strlen(pat->delim) + 12);
     if(!exit) exitMain(pat, exit);
 
-    if(pat->sig == 0) sprintf(exit, "status=%d\n", retour);
-    else sprintf(exit,"signal=%d\n", pat->sig);
+    if(pat->sig == 0) sprintf(exit, "status=%d\n", retour); //Fin normale de commande.
+    else sprintf(exit,"signal=%d\n", pat->sig); //Fin abrupte (interruption).
 
-    if(write(pat->stdExit[1], exit, strlen(exit)) == -1) exitMain(pat, NULL);
+    if(write(pat->stdExit[1], exit, strlen(exit)) == -1) exitMain(pat, NULL); //Envoie au parent.
     free(exit);
 }
 
 void polling(pat_t *pat) {
 
-    int pollStat = 1;
-    size_t size = 0;
-    bool flagO = false;
-    bool flagE = false;
+    int pollStat = 1; //Code de retour de "poll".
+    size_t size = 0; //Sert a sortir de la boucle de "poll" si il n'y a pas eu d'événements.
+    bool flagO = false; //Vérifier si la derniere sortie était une sortie standard pour éviter la répétition de séparateur.
+    bool flagE = false; //Vérifier si la derniere sortie était une sortie d'erreur pour éviter la répétition de séparateur.
     char *sep = calloc(4, sizeof(pat->delim));
+
     if(!sep) exitMain(pat, sep);
     snprintf(sep, sizeof(sep),"%s%s%s", pat->delim, pat->delim, pat->delim);
 
@@ -176,7 +177,7 @@ void polling(pat_t *pat) {
 
         char buf[4096] = {0};
         if (pat->fds[1].revents & POLLIN) {
-            if(fflush(stdout) != 0) exitMain(pat, sep);
+            if(fflush(stdout) != 0) exitMain(pat, sep); //Vider stdout au cas ou la derniere sortie n'avait pas de saut de ligne.
             flagE = false;
             size = read(pat->stdOut[0], buf, sizeof(buf));
             if(size > 0) {
@@ -211,7 +212,7 @@ void polling(pat_t *pat) {
                 snprintf(sep, sizeof(sep), "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
             else snprintf(sep, sizeof(sep), "%s%s%s", pat->delim, pat->delim, pat->delim);
         }
-        if(size == 0) break;
+        if(size == 0) break; //Sortir si rien ne c'est passé.
         size = 0;
     }
     free(sep);
@@ -223,8 +224,8 @@ void pPoll(pat_t *pat) {
     if(pipe(pat->stdExit) == -1 || pipe(pat->stdOut) == -1 || pipe(pat->stdErr) == -1) {
         exitMain(pat, NULL);
     }
-    pat->fds[0].fd = pat->stdExit[0];
-    pat->fds[0].events = POLLIN;
+    pat->fds[0].fd = pat->stdExit[0]; //Bout du tube qui lit "read" ([0]).
+    pat->fds[0].events = POLLIN; //Si il y a des données a lire.
     pat->fds[1].fd = pat->stdOut[0];
     pat->fds[1].events = POLLIN;
     pat->fds[2].fd = pat->stdErr[0];
@@ -247,8 +248,8 @@ void exitStd(pat_t *pat, int i) {
 void exitMain(pat_t *pat, char *heapV) {
 
     if(pat->newCmd) free(pat->newCmd);
-    if(heapV) free(heapV);
-    if(pat) free(pat);
+    if(heapV) free(heapV); //Heap réfere a une variable alloué sur le tas. Si la fonction appelante n'en as pas heap = NULL.
+    if(pat) free(pat); //Si la fonction appelante n'a pas la structure "pat", celle-ci peut mettre NULL a sa place.
     perror("Erreur fatale!");
     _exit(1);
 }
