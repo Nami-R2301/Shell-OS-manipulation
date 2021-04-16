@@ -20,26 +20,41 @@
 //} pollfds_t;
 
 typedef struct pat_s {
-    int option;
-    char *delim;
-    int nbrCmds;
-    char **newCmd;
-    int sig;
-    struct pollfd fds[3];
-    int stdExit[2];
-    int stdOut[2];
-    int stdErr[2];
-    int posDelD;
-    int posDelF;
+    int option; //Option -s.
+    char *delim; //Délimiteur de commandes.
+    int nbrCmds; //Nombre de commandes.
+    char **newCmd; //Un pseudo "argv[]" pour execvp.
+    int sig; //signal (SIGACT) recu lors de l'exécution d'une commande.
+    struct pollfd fds[3]; //Tubes utilisé pour communiquer avec "poll" (stdout, stderr, exit).
+    int stdExit[2]; //Tube personalisé pour envoyer le status/signal au parent sans passer par stdout.
+    int stdOut[2]; //Tube pour envoyer l'affichage de la sortie standard au parent.
+    int stdErr[2]; //Tube pour envoyer l'affichage de la sortie standard d'erreur au parent.
+    int posDelD; //Position de début de la commande évaluée.
+    int posDelF; //Position de fin de la commande évaluée.
 } pat_t;
 
+//Sert a lire les commandes pour l'exécution de celles-ci dans l'enfant.
 void readCmds(char **argv, const int *args, pat_t *pat);
+
+//Sert a exécuter les commandes avec execvp.
 void execCmds(pat_t *pat);
+
+//Sert a préparer les tubes et les descripteurs de fichiers pour la communication entre "poll" et l'enfant.
 void pPoll(pat_t *pat);
+
+//Transmet les données affichées par les sorties des commandes évaluées au parent en parallele.
 int forking(pat_t *pat, int, char **);
+
+//Aquiesce et gere les événements et données transmises par l'enfant en parallele.
 void polling(pat_t *);
+
+//Récupere les codes de retour des commandes ainsi que les signaux puis les transmets au parent via stdExit[1].
 void printExit(int retour, pat_t *pat);
+
+//Sert a.
 void exitMain(pat_t *, char *);
+
+//Aquiesce les données affichées par les sorties des commandes évaluées et les transmet au parent en parallele.
 void exitStd(pat_t *, int);
 
 int main(int argc, char *argv[]) {
@@ -80,16 +95,16 @@ int main(int argc, char *argv[]) {
 
 void readCmds(char **argv, const int *args, pat_t *pat) {
 
-    if(pat->newCmd) free(pat->newCmd);
-    pat->newCmd = calloc(*args, strlen(argv[0]));
+    if(pat->newCmd) free(pat->newCmd); //Libéré l'ancienne commande avant de procédé à la prochaine.
+    pat->newCmd = calloc(*args - (pat->option + 1), FILENAME_MAX); //Pour maximum robustesse.
     if(!pat->newCmd) exitMain(pat, NULL);
 
     for (int i = 0; i + pat->posDelD < *args; ++i) {
         if (strcmp(argv[i + pat->posDelD], pat->delim) != 0) {
-            pat->newCmd[i] = (char *) {""};
+            pat->newCmd[i] = (char *) {""}; //Pour calmer Valgrind.
             pat->newCmd[i] = argv[i + pat->posDelD];
             pat->posDelF++;
-        } else break;
+        } else break; //Fin de "argv[]".
     }
 
 }
