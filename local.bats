@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-load test_helper.bash
+load test_helper
 
 @test "Meme argument" {
 	run ./pat -s -s -s -s
