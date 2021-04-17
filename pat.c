@@ -14,11 +14,6 @@
  * Prénom: Nami
  * ********************* */
 
-//TODO
-//typedef struct pollfds_s {
-//   struct pollfd *fds[3];
-//} pollfds_t;
-
 typedef struct pat_s {
     int option; //Option -s.
     char *delim; //Délimiteur de commandes.
@@ -32,6 +27,8 @@ typedef struct pat_s {
     int posDelD; //Position de début de la commande évaluée.
     int posDelF; //Position de fin de la commande évaluée.
 } pat_t;
+
+void countArgs(pat_t *, char **, int);
 
 //Sert a lire les commandes pour l'exécution de celles-ci dans l'enfant.
 void readCmds(char **argv, const int *args, pat_t *pat);
@@ -70,6 +67,7 @@ int main(int argc, char *argv[]) {
         pat->delim = argv[2];
         pat->option = 2;
     }
+    countArgs(pat, argv, argc);
     pPoll(pat);
     int retour = 1; //Code de retour de "pat".
     pid_t pid = fork();
@@ -91,6 +89,13 @@ int main(int argc, char *argv[]) {
     free(pat->newCmd);
     free(pat);
     return retour;
+}
+
+void countArgs(pat_t *pat, char **argv, const int argc) {
+
+    for(int i = pat->option + 1; i  < argc; ++i) {
+        if(strcmp(argv[i], pat->delim) != 0) pat->nbrCmds++;
+    }
 }
 
 void readCmds(char **argv, const int *args, pat_t *pat) {
@@ -167,10 +172,10 @@ void polling(pat_t *pat) {
     size_t size = 0; //Sert a sortir de la boucle de "poll" si il n'y a pas eu d'événements.
     bool flagO = false; //Vérifier si la derniere sortie était une sortie standard pour éviter la répétition de séparateur.
     bool flagE = false; //Vérifier si la derniere sortie était une sortie d'erreur pour éviter la répétition de séparateur.
-    char *sep = calloc(4, sizeof(pat->delim));
+    char *sep = calloc(4, strlen(pat->delim) + 2);
 
     if(!sep) exitMain(pat, sep);
-    snprintf(sep, sizeof(sep),"%s%s%s", pat->delim, pat->delim, pat->delim);
+    snprintf(sep, strlen(pat->delim) * 4 + 2,"%s%s%s", pat->delim, pat->delim, pat->delim);
 
     while(pollStat >= 1) {
         pollStat = poll(pat->fds, 3, -1);
@@ -186,8 +191,8 @@ void polling(pat_t *pat) {
                 if(fflush(stdout) != 0) exitMain(pat, sep);
             }
             if (size > 0 && buf[size - 1] != '\n')
-                snprintf(sep, sizeof(sep), "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
-            else snprintf(sep, sizeof(sep), "%s%s%s", pat->delim, pat->delim, pat->delim);
+                snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
+            else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
             flagO = true;
         }
         if (pat->fds[2].revents & POLLIN) {
@@ -200,8 +205,8 @@ void polling(pat_t *pat) {
                 if(fflush(stdout) != 0) exitMain(pat, sep);
             }
             if (size > 0 && buf[size - 1] != '\n')
-                snprintf(sep, sizeof(sep), "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
-            else snprintf(sep, sizeof(sep), "%s%s%s", pat->delim, pat->delim, pat->delim);
+                snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
+            else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
             flagE = true;
         }
         if (pat->fds[0].revents & POLLIN) {
@@ -209,8 +214,8 @@ void polling(pat_t *pat) {
             size = read(pat->stdExit[0], buf, sizeof(buf));
             if(size > 0) printf("%s exit, %s", sep, buf);
             if (size > 0 && buf[size - 1] != '\n')
-                snprintf(sep, sizeof(sep), "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
-            else snprintf(sep, sizeof(sep), "%s%s%s", pat->delim, pat->delim, pat->delim);
+                snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
+            else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
         }
         if(size == 0) break; //Sortir si rien ne c'est passé.
         size = 0;
@@ -247,9 +252,9 @@ void exitStd(pat_t *pat, int i) {
 
 void exitMain(pat_t *pat, char *heapV) {
 
-    if(pat->newCmd) free(pat->newCmd);
-    if(heapV) free(heapV); //Heap réfere a une variable alloué sur le tas. Si la fonction appelante n'en as pas heap = NULL.
-    if(pat) free(pat); //Si la fonction appelante n'a pas la structure "pat", celle-ci peut mettre NULL a sa place.
+    free(pat->newCmd);
+    free(heapV); //Heap réfere a une variable alloué sur le tas. Si la fonction appelante n'en as pas heap = NULL.
+    free(pat); //Si la fonction appelante n'a pas la structure "pat", celle-ci peut mettre NULL a sa place.
     perror("Erreur fatale!");
     _exit(1);
 }
