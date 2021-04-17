@@ -120,13 +120,15 @@ int forking(pat_t *pat, int argc, char **argv) {
     //int nbrCmds = pat->nbrCmds;
     pid_t neveu;
     for (int i = 1 + pat->option; i < argc; ++i) {
-        pat->posDelF = 0;
-        pat->posDelD = i; //Indice de début de commande.
-        readCmds(argv, &argc, pat);
-        i += pat->posDelF; //Indice de fin de commande.
-        neveu = fork();
-        if(neveu == -1) exitMain(pat, NULL);
-        if (neveu == 0) execCmds(pat);
+        if(strcmp(argv[i], pat->delim) != 0) {
+            pat->posDelF = 0;
+            pat->posDelD = i; //Indice de début de commande.
+            readCmds(argv, &argc, pat);
+            i += pat->posDelF; //Indice de fin de commande.
+            neveu = fork();
+            if (neveu == -1) exitMain(pat, NULL);
+            if (neveu == 0) execCmds(pat);
+        }
     }
     while(waitpid(-1, &neveu, 0) != -1) { //Parent des neveux (Enfant) attend que tous les neveux terminent.
         if (WIFSIGNALED(neveu)) {
