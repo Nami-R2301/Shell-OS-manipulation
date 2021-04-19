@@ -99,7 +99,6 @@ int main(int argc, char *argv[]) {
             fflush(stdout);
             if(WIFEXITED(pid)) retour = WEXITSTATUS(pid);
             if(WIFSIGNALED(pid)) retour += WTERMSIG(pid);
-            sleep(1);
             exitStd(pat, 0); //Fermeture des tubes "read (stdin)" du parent.
         }
     }
@@ -117,14 +116,12 @@ void countCmds(pat_t *pat, char **argv, const int argc) {
     pat->pipes = calloc(argc - 1, sizeof(pollfds_t));
     for(int i = pat->option + 1; i  < argc; ++i) {
         if(strcmp(argv[i], pat->delim) != 0) {
-            if(!arg) {
-                pat->pipes[pat->nbrCmds] = malloc(sizeof(pollfds_t));
-                pat->pipes[pat->nbrCmds]->numCmd = pat->nbrCmds + 1;
-                pipe(pat->pipes[pat->nbrCmds]->wexpipes);
-                pipe(pat->pipes[pat->nbrCmds]->wOpipes);
-                pipe(pat->pipes[pat->nbrCmds]->wEpipes);
-                pat->nbrCmds++;
-            }
+            pat->pipes[pat->nbrCmds] = malloc(sizeof(pollfds_t));
+            pat->pipes[pat->nbrCmds]->numCmd = pat->nbrCmds + 1;
+            pipe(pat->pipes[pat->nbrCmds]->wexpipes);
+            pipe(pat->pipes[pat->nbrCmds]->wOpipes);
+            pipe(pat->pipes[pat->nbrCmds]->wEpipes);
+            if(!arg) pat->nbrCmds++;
             arg = true;
         } else arg = false;
     }
@@ -165,7 +162,7 @@ int forking(pat_t *pat, int argc, char **argv) {
     }
     while(waitid(P_ALL, neveu, &info, WEXITED | WSTOPPED) != -1) { //Parent des neveux (Enfant) attend que tous les neveux terminent.
         int num;
-        if(pat->nbrCmds > 1) num = ((info.si_pid - numCmd)  - nbrCmds) - 1;
+        if(pat->nbrCmds > 1) num = ((info.si_pid - numCmd)  - (nbrCmds + 1));
         else num = 0;
         if (info.si_code == CLD_KILLED || info.si_code == CLD_STOPPED) {
             pat->sig = info.si_status;
@@ -232,13 +229,12 @@ void polling(pat_t *pat, int i) {
                 if(fflush(stdout) != 0) exitMain(pat, sep);
             }
             if (size > 0 && buf[size - 1] != '\n')
-                snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
+                snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
             else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
-            if(size > 0 && buf[size - 1] != '\n') printf("\n");
+            //if(size > 0 && buf[size - 1] != '\n') printf("\n");
             if(fflush(stdout) != 0) exitMain(pat, sep);
             flagO = true;
-        }
-        if (pat->pipes[i]->fds[2].revents & POLLIN) {
+        } else if (pat->pipes[i]->fds[2].revents & POLLIN) {
             if(fflush(stdout) != 0) exitMain(pat, sep);
             flagO = false;
             size = read(pat->pipes[i]->wEpipes[0], buf, sizeof(buf));
@@ -249,13 +245,12 @@ void polling(pat_t *pat, int i) {
                 if(fflush(stdout) != 0) exitMain(pat, sep);
             }
             if (size > 0 && buf[size - 1] != '\n')
-                snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
+                snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
             else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
-            if(size > 0 && buf[size - 1] != '\n') printf("\n");
+            //if(size > 0 && buf[size - 1] != '\n') printf("\n");
             if(fflush(stdout) != 0) exitMain(pat, sep);
             flagE = true;
-        }
-        if (pat->pipes[i]->fds[0].revents & POLLIN) {
+        } else if (pat->pipes[i]->fds[0].revents & POLLIN) {
             if(fflush(stdout) != 0) exitMain(pat, sep);
             size = read(pat->pipes[i]->wexpipes[0], buf, sizeof(buf));
             if(size > 0 && pat->nbrCmds > 1) printf("%s exit %d, %s", sep, pat->pipes[i]->numCmd, buf);
