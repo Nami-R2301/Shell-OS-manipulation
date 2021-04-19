@@ -99,10 +99,13 @@ int main(int argc, char *argv[]) {
             fflush(stdout);
             if(WIFEXITED(pid)) retour = WEXITSTATUS(pid);
             if(WIFSIGNALED(pid)) retour += WTERMSIG(pid);
+            sleep(1);
             exitStd(pat, 0); //Fermeture des tubes "read (stdin)" du parent.
         }
     }
     free(pat->fds);
+    for(int i = 0; i < pat->nbrCmds; ++i) free(pat->pipes[i]);
+    free(pat->pipes);
     free(pat->newCmd);
     free(pat);
     return retour;
@@ -114,12 +117,14 @@ void countCmds(pat_t *pat, char **argv, const int argc) {
     pat->pipes = calloc(argc - 1, sizeof(pollfds_t));
     for(int i = pat->option + 1; i  < argc; ++i) {
         if(strcmp(argv[i], pat->delim) != 0) {
-            pat->pipes[pat->nbrCmds] = malloc(sizeof(pollfds_t));
-            pat->pipes[pat->nbrCmds]->numCmd = pat->nbrCmds + 1;
-            pipe(pat->pipes[pat->nbrCmds]->wexpipes);
-            pipe(pat->pipes[pat->nbrCmds]->wOpipes);
-            pipe(pat->pipes[pat->nbrCmds]->wEpipes);
-            if(!arg) pat->nbrCmds++;
+            if(!arg) {
+                pat->pipes[pat->nbrCmds] = malloc(sizeof(pollfds_t));
+                pat->pipes[pat->nbrCmds]->numCmd = pat->nbrCmds + 1;
+                pipe(pat->pipes[pat->nbrCmds]->wexpipes);
+                pipe(pat->pipes[pat->nbrCmds]->wOpipes);
+                pipe(pat->pipes[pat->nbrCmds]->wEpipes);
+                pat->nbrCmds++;
+            }
             arg = true;
         } else arg = false;
     }
@@ -205,15 +210,17 @@ void polling(pat_t *pat, int i) {
     size_t size = 0; //Sert a sortir de la boucle de "poll" si il n'y a pas eu d'événements.
     bool flagO = false; //Vérifier si la derniere sortie était une sortie standard pour éviter la répétition de séparateur.
     bool flagE = false; //Vérifier si la derniere sortie était une sortie d'erreur pour éviter la répétition de séparateur.
+    bool flagEx = false;
     char *sep = calloc(4, strlen(pat->delim) + 2);
 
     if(!sep) exitMain(pat, sep);
     snprintf(sep, strlen(pat->delim) * 4 + 2,"%s%s%s", pat->delim, pat->delim, pat->delim);
 
-    while(pollStat >= 1) {
+    while(!flagEx && pollStat >= 1) {
         pollStat = poll(pat->pipes[i]->fds, 3, -1);
 
         char buf[4096] = {0};
+        fflush(stdout);
         if (pat->pipes[i]->fds[1].revents & POLLIN) {
             if(fflush(stdout) != 0) exitMain(pat, sep); //Vider stdout au cas ou la derniere sortie n'avait pas de saut de ligne.
             flagE = false;
@@ -254,8 +261,8 @@ void polling(pat_t *pat, int i) {
             if(size > 0 && pat->nbrCmds > 1) printf("%s exit %d, %s", sep, pat->pipes[i]->numCmd, buf);
             else if(size > 0) printf("%s exit, %s", sep, buf);
             if(fflush(stdout) != 0) exitMain(pat, sep);
+            flagEx = true;
         }
-        if(size == 0) break; //Sortir si rien ne c'est passé.
         size = 0;
     }
     free(sep);

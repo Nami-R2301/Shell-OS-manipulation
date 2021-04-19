@@ -4,7 +4,7 @@ load test_helper
 
 @test "Meme argument" {
 	run ./pat -s -s -s -s
-  [ "$status" = "0" ]
+  [ "$status" != "0" ]
 }
 
 @test "Sous-shell" {
