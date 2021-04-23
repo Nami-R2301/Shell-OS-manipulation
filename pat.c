@@ -183,7 +183,6 @@ int forking(pat_t *pat, int argc, char **argv) {
         if (neveu[nbrCmds] == 0) execCmds(pat, nbrCmds);
         nbrCmds++;
     }
-    if(pat->newCmd) free(pat->newCmd); //Libéré l'ancienne commande avant de procédé à la prochaine.
     while(waitid(P_ALL, 0, &info, WEXITED | WSTOPPED) != -1) { //Parent des neveux (Enfant) attend que tous les neveux terminent.
         for(int i = 0; i < nbrCmds; ++i) {
             if(neveu[i] == info.si_pid) {
@@ -359,7 +358,7 @@ void exitStd(pat_t *pat, int i) {
 
 void exitMain(pat_t *pat, char *heapV) {
 
-    free(pat->newCmd);
+    if(pat->newCmd) free(pat->newCmd);
     free(heapV); //Heap réfere a une variable alloué sur le tas. Si la fonction appelante n'en as pas heap = NULL.
     free(pat); //Si la fonction appelante n'a pas la structure "pat", celle-ci peut mettre NULL a sa place.
     perror("Erreur fatale!");
