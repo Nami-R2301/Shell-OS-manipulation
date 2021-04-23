@@ -293,8 +293,7 @@ void printPoll(pat_t *pat) {
             else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
             if(fflush(stdout) != 0) exitMain(pat, sep);
 
-        }
-        if(pat->fdsMain[1].revents & POLLIN) {
+        } else if(pat->fdsMain[1].revents & POLLIN) {
             size = read(pat->stdErr[0], buf, sizeof(buf));
             if (size > 0) fixLine(buf, string, sep);
             if (size > 0 && buf[size - 1] != '\n')
