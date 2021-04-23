@@ -240,14 +240,14 @@ void pollChild(pat_t *pat, int i) {
             if(fflush(stdout) != 0) exitMain(pat, sep); //Vider stdout au cas ou la derniere sortie n'avait pas de saut de ligne.
             size = read(pat->pipes[i]->wOpipes[0], buf, sizeof(buf));
             if(size > 0 && pat->nbrCmds > 1) printf(" stdout %d\n%s", pat->pipes[i]->numCmd, buf);
-            if(size > 0 && pat->nbrCmds == 1) printf(" stdout\n%s", buf);
+            if(size > 0 && pat->nbrCmds == 1) printf(" stdout \n%s", buf);
             if(fflush(stdout) != 0) exitMain(pat, sep);
 
         }else if (pat->pipes[i]->fdsChild[2].revents & POLLIN) {
             if(fflush(stdout) != 0) exitMain(pat, sep);
             size = read(pat->pipes[i]->wEpipes[0], buf, sizeof(buf));
             if(size > 0 && pat->nbrCmds > 1) printf(" stderr %d\n%s", pat->pipes[i]->numCmd, buf);
-            if(size > 0 && pat->nbrCmds == 1) printf(" stderr\n%s", buf);
+            if(size > 0 && pat->nbrCmds == 1) printf(" stderr \n%s", buf);
             if(fflush(stdout) != 0) exitMain(pat, sep);
             flagE = true;
 
