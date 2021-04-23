@@ -84,14 +84,14 @@ int main(int argc, char *argv[]) {
     }
     pat->fdsChild = calloc(pat->nbrCmds, sizeof(struct pollfd) * 3);
     pPoll(pat);
-    int retour = 1; //Code de retour de "pat".
+    int retour = 0; //Code de retour de "pat".
     pid_t pid = fork();
     if(pid == -1) exitMain(pat, NULL);
     if(pid > 0) {
         exitStd(pat, 1); //Fermeture des tubes "write (stdout)" du parent.
         pid_t enfant = fork();
         pid_t neveu = 0;
-        if(enfant == 0 && pat->nbrCmds > 1) {
+        if(enfant == 0) {
             dup2(pat->stdOut[1], STDOUT_FILENO);
             close(pat->stdOut[1]);
             for (int i = 0; i < pat->nbrCmds; ++i) {
@@ -102,18 +102,15 @@ int main(int argc, char *argv[]) {
             exitStd(pat, 0); //Fermeture des tubes "read (stdin)" du parent.
             close(pat->stdOut[0]);
             close(STDOUT_FILENO);
-        } else if(enfant > 0 && pat->nbrCmds > 1) {
+        } else if(enfant > 0) {
             close(pat->stdOut[1]);
             pollMain(pat);
-            wait(NULL);
-            //exitStd(pat, 0);
-            //else pollChild(pat, 0);
             while (waitpid(pid, &pid, 0) != -1) {
                 if (fflush(stdout) != 0) exitMain(pat, NULL);
                 if (WIFEXITED(pid)) retour = WEXITSTATUS(pid);
                 if (WIFSIGNALED(pid)) retour += WTERMSIG(pid);
-                exitStd(pat, 0); //Fermeture des tubes "read (stdin)" du parent.
             }
+            exitStd(pat, 0); //Fermeture des tubes "read (stdin)" du parent.
         }
     } else if(pid == 0) {
         exitStd(pat, 0); //Fermeture des tubes "read (stdin)" de l'enfant.
@@ -167,40 +164,33 @@ int forking(pat_t *pat, int argc, char **argv) {
 
     int retour = 0; //Somme des codes de retour des commandes.
     int nbrCmds = 0;
-    siginfo_t info;
-    int numCmd = getpid();
-    int cmdT = pat->nbrCmds;
-    int j = 0;
-    pid_t neveu;
+    int num = 0;
+    siginfo_t info = {0};
+    pid_t neveu[pat->nbrCmds];
     for (int i = 1 + pat->option; i < argc; ++i) {
         pat->posDelF = 0;
         pat->posDelD = i; //Indice de début de commande.
         readCmds(argv, &argc, pat);
         i += pat->posDelF; //Indice de fin de commande.
-        neveu = fork();
-        if(neveu == -1) exitMain(pat, NULL);
-        if (neveu == 0) execCmds(pat, nbrCmds);
+        neveu[nbrCmds] = fork();
+        if (neveu[nbrCmds] == -1) exitMain(pat, NULL);
+        if (neveu[nbrCmds] == 0) execCmds(pat, nbrCmds);
         nbrCmds++;
     }
-    while(waitid(P_ALL, neveu, &info, WEXITED | WSTOPPED) != -1) { //Parent des neveux (Enfant) attend que tous les neveux terminent.
-        int num;
-        if(cmdT > 1) num = (info.si_pid % getppid() % cmdT);
-        else num = 0;
-        //printf("%d\n", num);
-        if (info.si_code == CLD_KILLED || info.si_code == CLD_STOPPED) {
-            pat->sig = info.si_status;
-            retour += 128 + pat->sig;
-        } else if (info.si_code == CLD_EXITED) retour += info.si_status;
-        printExit(info.si_status, pat, num); //Envoie vers "pat->stdExit[1]".
-        pat->sig = 0;
-        info = (siginfo_t) {0};
-        pat->nbrCmds--;
-        if(pat->nbrCmds == 0) {
-            exitStd(pat, 1);
-            return retour;
+    while(waitid(P_ALL, 0, &info, WEXITED | WSTOPPED) != -1) { //Parent des neveux (Enfant) attend que tous les neveux terminent.
+        for(int i = 0; i < nbrCmds; ++i) {
+            if(neveu[i] == info.si_pid) {
+                num = i;
+                if (info.si_code == CLD_KILLED || info.si_code == CLD_STOPPED) {
+                    pat->sig = info.si_status;
+                    retour += 128 + pat->sig;
+                } else if (info.si_code == CLD_EXITED) retour += info.si_status;
+                printExit(info.si_status, pat, num); //Envoie vers "pat->stdExit[1]".
+                pat->sig = 0;
+            }
         }
     }
-    return -1;
+    return retour;
 }
 
 void execCmds(pat_t *pat, int i) {
@@ -218,14 +208,14 @@ void execCmds(pat_t *pat, int i) {
 
 void printExit(int retour, pat_t *pat, int numCmd) {
 
-    char *exit = malloc(11);
+    char *exit = calloc(1,12);
     if(!exit) exitMain(pat, exit);
 
     if(pat->sig == 0) sprintf(exit, "status=%d\n", retour); //Fin normale de commande.
     else sprintf(exit,"signal=%d\n", pat->sig); //Fin abrupte (interruption).
     int id = pat->pipes[numCmd]->wexpipes[1];
 
-    if(write(id, exit, 11) == -1) exitMain(pat, NULL); //Envoie au parent.
+    if(write(id, exit, strlen(exit)) == -1) exitMain(pat, NULL); //Envoie au parent.
     free(exit);
 }
 
@@ -234,6 +224,7 @@ void pollChild(pat_t *pat, int i) {
     int pollStat = 1; //Code de retour de "poll".
     size_t size = 0; //Sert a sortir de la boucle de "poll" si il n'y a pas eu d'événements.
     bool flagEx = false;
+    bool flagE = false;
     char *sep = calloc(4, strlen(pat->delim) + 2);
 
     if(!sep) exitMain(pat, sep);
@@ -249,24 +240,27 @@ void pollChild(pat_t *pat, int i) {
             if(fflush(stdout) != 0) exitMain(pat, sep); //Vider stdout au cas ou la derniere sortie n'avait pas de saut de ligne.
             size = read(pat->pipes[i]->wOpipes[0], buf, sizeof(buf));
             if(size > 0 && pat->nbrCmds > 1) printf(" stdout %d\n%s", pat->pipes[i]->numCmd, buf);
+            if(size > 0 && pat->nbrCmds == 1) printf(" stdout\n%s", buf);
             if(fflush(stdout) != 0) exitMain(pat, sep);
-        }
-        if (pat->pipes[i]->fdsChild[2].revents & POLLIN) {
+
+        }else if (pat->pipes[i]->fdsChild[2].revents & POLLIN) {
             if(fflush(stdout) != 0) exitMain(pat, sep);
             size = read(pat->pipes[i]->wEpipes[0], buf, sizeof(buf));
             if(size > 0 && pat->nbrCmds > 1) printf(" stderr %d\n%s", pat->pipes[i]->numCmd, buf);
+            if(size > 0 && pat->nbrCmds == 1) printf(" stderr\n%s", buf);
             if(fflush(stdout) != 0) exitMain(pat, sep);
+            flagE = true;
 
-        }
-        if (pat->pipes[i]->fdsChild[0].revents & POLLIN) {
+        }else if (!flagE && pat->pipes[i]->fdsChild[0].revents & POLLIN) {
             if(fflush(stdout) != 0) exitMain(pat, sep);
             size = read(pat->pipes[i]->wexpipes[0], buf, sizeof(buf));
             if(size > 0 && pat->nbrCmds > 1) printf(" exit %d, %s", pat->pipes[i]->numCmd, buf);
-            else if(size > 0) printf(" exit, %s", buf);
+            else if(size > 0 && pat->nbrCmds == 1) printf(" exit, %s", buf);
             if(fflush(stdout) != 0) exitMain(pat, sep);
         }
         if(size == 0) break;
         size = 0;
+        flagE = false;
     }
     if(fflush(stdout) != 0) exitMain(pat, sep);
     free(sep);
@@ -274,10 +268,8 @@ void pollChild(pat_t *pat, int i) {
     for(int j = 0; i < pat->nbrCmds; ++i) free(pat->pipes[i]);
     free(pat->pipes);
     free(pat->fdsChild);
-    if(pat->nbrCmds > 1) {
-        close(pat->stdOut[0]);
-        close(STDOUT_FILENO);
-    }
+    close(pat->stdOut[0]);
+    close(STDOUT_FILENO);
     _exit(0);
 }
 
@@ -290,6 +282,7 @@ void pollMain(pat_t *pat) {
     if(!sep) exitMain(pat, sep);
     snprintf(sep, strlen(pat->delim) * 4 + 2,"%s%s%s", pat->delim, pat->delim, pat->delim);
     char *string = calloc(1, FILENAME_MAX);
+    *string = (char) {'&'};
 
     while(pollStat > 0) {
         pollStat = poll(pat->fdsMain, 1, -1);
@@ -299,8 +292,8 @@ void pollMain(pat_t *pat) {
         if (pat->fdsMain[0].revents & POLLIN) {
             size = read(pat->stdOut[0], buf, sizeof(buf));
             if (size > 0) {
-                if (pat->nbrCmds > 1 && strcmp(buf, string) != 0 && (strstr(buf, "exit")
-                                                                     || strstr(buf, "stdout") || strstr(buf, "stderr"))) {
+                if (strcmp(buf, string) != 0 && (strstr(buf, "exit") || strstr(buf, "stdout")
+                                                 || strstr(buf, "stderr"))) {
                     printf("%s%s", sep, buf);
                     if(fflush(stdout) != 0) exitMain(pat, sep);
                     strncpy(string, buf, size);
@@ -327,6 +320,10 @@ void pollMain(pat_t *pat) {
     if(pollStat == -1) exitMain(pat, sep);
 }
 
+//TODO
+void fixLines(char *buf) {
+
+}
 
 void pPoll(pat_t *pat) {
 
@@ -349,6 +346,8 @@ void exitStd(pat_t *pat, int i) {
         if (close(pat->pipes[j]->wOpipes[i]) == -1 || close(pat->pipes[j]->wEpipes[i]) == -1
             || close(pat->pipes[j]->wexpipes[i]) == -1) {
             fflush(stdout);
+            fprintf(stderr,"PROBLEME DE STD, PID %d, i = %d; j = %d\n", getpid(), i, j);
+            pause();
             exitMain(pat, NULL);
         }
     }
