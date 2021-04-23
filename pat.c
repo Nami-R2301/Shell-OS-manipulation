@@ -183,6 +183,7 @@ int forking(pat_t *pat, int argc, char **argv) {
         if (neveu[nbrCmds] == 0) execCmds(pat, nbrCmds);
         nbrCmds++;
     }
+    if(pat->newCmd) free(pat->newCmd); //Libéré l'ancienne commande avant de procédé à la prochaine.
     while(waitid(P_ALL, 0, &info, WEXITED | WSTOPPED) != -1) { //Parent des neveux (Enfant) attend que tous les neveux terminent.
         for(int i = 0; i < nbrCmds; ++i) {
             if(neveu[i] == info.si_pid) {
@@ -351,8 +352,6 @@ void exitStd(pat_t *pat, int i) {
         if (close(pat->pipes[j]->wOpipes[i]) == -1 || close(pat->pipes[j]->wEpipes[i]) == -1
             || close(pat->pipes[j]->wexpipes[i]) == -1) {
             fflush(stdout);
-            fprintf(stderr,"PROBLEME DE STD, PID %d, i = %d; j = %d\n", getpid(), i, j);
-            pause();
             exitMain(pat, NULL);
         }
     }
