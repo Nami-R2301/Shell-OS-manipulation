@@ -54,7 +54,7 @@ int forking(pat_t *, int, char **);
 //Aquiesce et gere les événements et données transmises par l'enfant en parallele.
 void pollChild(pat_t *, int i);
 
-void pollMain(pat_t *);
+void printPoll(pat_t *pat);
 
 void fixLine(char *, char *, char *);
 
@@ -112,7 +112,7 @@ int main(int argc, char *argv[]) {
         } else if(enfant > 0) {
             close(pat->stdOut[1]);
             close(pat->stdErr[1]);
-            pollMain(pat);
+            printPoll(pat);
             while (waitpid(pid, &pid, 0) != -1) {
                 if (fflush(stdout) != 0) exitMain(pat, NULL);
                 if (WIFEXITED(pid)) retour = WEXITSTATUS(pid);
@@ -248,14 +248,14 @@ void pollChild(pat_t *pat, int i) {
             if(fflush(stdout) != 0) exitMain(pat, NULL);
             size = read(pat->pipes[i]->wEpipes[0], buf, sizeof(buf));
             if(size > 0 && pat->nbrCmds > 1) fprintf(stderr," stderr %d\n%s", pat->pipes[i]->numCmd, buf);
-            if(size > 0 && pat->nbrCmds == 1) fprintf(stderr," stderr\n%s", buf);
+            else if(size > 0) fprintf(stderr," stderr\n%s", buf);
             if(fflush(stdout) != 0) exitMain(pat, NULL);
 
         }else if (pat->pipes[i]->fdsChild[0].revents & POLLIN) {
             if(fflush(stdout) != 0) exitMain(pat, NULL);
             size = read(pat->pipes[i]->wexpipes[0], buf, sizeof(buf));
             if(size > 0 && pat->nbrCmds > 1) printf(" exit %d, %s", pat->pipes[i]->numCmd, buf);
-            else if(size > 0 && pat->nbrCmds == 1) printf(" exit, %s", buf);
+            else if(size > 0) printf(" exit, %s", buf);
             if(fflush(stdout) != 0) exitMain(pat, NULL);
         }
         if(size == 0) break;
@@ -271,7 +271,7 @@ void pollChild(pat_t *pat, int i) {
     _exit(0);
 }
 
-void pollMain(pat_t *pat) {
+void printPoll(pat_t *pat) {
 
     int pollStat = 1; //Code de retour de "poll".
     size_t size = 0; //Sert a sortir de la boucle de "poll" si il n'y a pas eu d'événements.
