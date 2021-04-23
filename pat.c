@@ -32,8 +32,9 @@ typedef struct pat_s {
     int posDelF; //Position de fin de la commande évaluée.
     pollfds_t **pipes;
     int stdOut[2];
+    int stdErr[2];
     struct pollfd *fdsChild; //Tubes utilisé pour communiquer avec "poll" (stdout, stderr, exit).
-    struct pollfd fdsMain[1];
+    struct pollfd fdsMain[2];
 } pat_t;
 
 void countCmds(pat_t *, char **, int);
@@ -72,7 +73,7 @@ int main(int argc, char *argv[]) {
     }
     pat_t *pat = malloc(sizeof(struct pat_s));
     if(!pat) exitMain(NULL, NULL);
-    *pat = (struct pat_s) {0, "+", 0, NULL, 0, 0, 0, NULL, {0}, NULL, 0};
+    *pat = (struct pat_s) {0, "+", 0, NULL, 0, 0, 0, NULL, {0}, {0}, NULL, {0}};
     if (strcmp(argv[1], "-s") == 0 && strlen(argv[2]) >= 1) {
         pat->delim = argv[2];
         pat->option = 2;
@@ -90,10 +91,12 @@ int main(int argc, char *argv[]) {
     if(pid > 0) {
         exitStd(pat, 1); //Fermeture des tubes "write (stdout)" du parent.
         pid_t enfant = fork();
-        pid_t neveu = 0;
+        pid_t neveu;
         if(enfant == 0) {
             dup2(pat->stdOut[1], STDOUT_FILENO);
+            dup2(pat->stdErr[1], STDERR_FILENO);
             close(pat->stdOut[1]);
+            close(pat->stdErr[1]);
             for (int i = 0; i < pat->nbrCmds; ++i) {
                 neveu = fork();
                 if(neveu == 0) pollChild(pat, i); //Attentes des événements de l'enfant.
@@ -101,9 +104,12 @@ int main(int argc, char *argv[]) {
             if (fflush(stdout) != 0) exitMain(pat, NULL);
             exitStd(pat, 0); //Fermeture des tubes "read (stdin)" du parent.
             close(pat->stdOut[0]);
+            close(pat->stdErr[0]);
             close(STDOUT_FILENO);
+            close(STDERR_FILENO);
         } else if(enfant > 0) {
             close(pat->stdOut[1]);
+            close(pat->stdErr[1]);
             pollMain(pat);
             while (waitpid(pid, &pid, 0) != -1) {
                 if (fflush(stdout) != 0) exitMain(pat, NULL);
@@ -164,7 +170,7 @@ int forking(pat_t *pat, int argc, char **argv) {
 
     int retour = 0; //Somme des codes de retour des commandes.
     int nbrCmds = 0;
-    int num = 0;
+    int num;
     siginfo_t info = {0};
     pid_t neveu[pat->nbrCmds];
     for (int i = 1 + pat->option; i < argc; ++i) {
@@ -223,8 +229,6 @@ void pollChild(pat_t *pat, int i) {
 
     int pollStat = 1; //Code de retour de "poll".
     size_t size = 0; //Sert a sortir de la boucle de "poll" si il n'y a pas eu d'événements.
-    bool flagEx = false;
-    bool flagE = false;
     char *sep = calloc(4, strlen(pat->delim) + 2);
 
     if(!sep) exitMain(pat, sep);
@@ -246,12 +250,11 @@ void pollChild(pat_t *pat, int i) {
         }else if (pat->pipes[i]->fdsChild[2].revents & POLLIN) {
             if(fflush(stdout) != 0) exitMain(pat, sep);
             size = read(pat->pipes[i]->wEpipes[0], buf, sizeof(buf));
-            if(size > 0 && pat->nbrCmds > 1) printf(" stderr %d\n%s", pat->pipes[i]->numCmd, buf);
-            if(size > 0 && pat->nbrCmds == 1) printf(" stderr \n%s", buf);
+            if(size > 0 && pat->nbrCmds > 1) fprintf(stderr," stderr %d\n%s", pat->pipes[i]->numCmd, buf);
+            if(size > 0 && pat->nbrCmds == 1) fprintf(stderr," stderr \n%s", buf);
             if(fflush(stdout) != 0) exitMain(pat, sep);
-            flagE = true;
 
-        }else if (!flagE && pat->pipes[i]->fdsChild[0].revents & POLLIN) {
+        }else if (pat->pipes[i]->fdsChild[0].revents & POLLIN) {
             if(fflush(stdout) != 0) exitMain(pat, sep);
             size = read(pat->pipes[i]->wexpipes[0], buf, sizeof(buf));
             if(size > 0 && pat->nbrCmds > 1) printf(" exit %d, %s", pat->pipes[i]->numCmd, buf);
@@ -260,16 +263,15 @@ void pollChild(pat_t *pat, int i) {
         }
         if(size == 0) break;
         size = 0;
-        flagE = false;
     }
     if(fflush(stdout) != 0) exitMain(pat, sep);
     free(sep);
     if(pollStat == -1) exitMain(pat, sep);
-    for(int j = 0; i < pat->nbrCmds; ++i) free(pat->pipes[i]);
+    for(int j = 0; j < pat->nbrCmds; ++j) free(pat->pipes[j]);
+    close(pat->stdOut[0]);
+    close(pat->stdErr[0]);
     free(pat->pipes);
     free(pat->fdsChild);
-    close(pat->stdOut[0]);
-    close(STDOUT_FILENO);
     _exit(0);
 }
 
@@ -285,30 +287,30 @@ void pollMain(pat_t *pat) {
     *string = (char) {'&'};
 
     while(pollStat > 0) {
-        pollStat = poll(pat->fdsMain, 1, -1);
+        pollStat = poll(pat->fdsMain, 2, -1);
         char buf[FILENAME_MAX] = {0};
         if(fflush(stdout) != 0) exitMain(pat, sep); //Vider stdout au cas ou la derniere sortie n'avait pas de saut de ligne.
 
         if (pat->fdsMain[0].revents & POLLIN) {
             size = read(pat->stdOut[0], buf, sizeof(buf));
             if (size > 0) {
-                if (strcmp(buf, string) != 0 && (strstr(buf, "exit") || strstr(buf, "stdout")
-                                                 || strstr(buf, "stderr"))) {
-                    printf("%s%s", sep, buf);
-                    if(fflush(stdout) != 0) exitMain(pat, sep);
-                    strncpy(string, buf, size);
-                    if(buf[size - 1] == '\n') strtok(string, "\n");
-                }
-                else if(buf[size - 1] != '\n') {
-                    strtok(buf, "\n");
-                    printf("%s", buf);
-                    if (fflush(stdout) != 0) exitMain(pat, sep);
-                }
+                printf("%s%s", sep, buf);
+                if(fflush(stdout) != 0) exitMain(pat, sep);
             }
             if (size > 0 && buf[size - 1] != '\n')
                 snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
             else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
-            //if(size > 0 && buf[size - 1] != '\n') printf("\n");
+            if (fflush(stdout) != 0) exitMain(pat, sep);
+        }
+        if(pat->fdsMain[1].revents & POLLIN) {
+            size = read(pat->stdErr[0], buf, sizeof(buf));
+            if (size > 0) {
+                printf("%s%s", sep, buf);
+                if(fflush(stdout) != 0) exitMain(pat, sep);
+            }
+            if (size > 0 && buf[size - 1] != '\n')
+                snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
+            else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
             if (fflush(stdout) != 0) exitMain(pat, sep);
         }
         if(size == 0) break;
@@ -336,8 +338,11 @@ void pPoll(pat_t *pat) {
         pat->pipes[i]->fdsChild[2].events = POLLIN;
     }
     pipe(pat->stdOut);
+    pipe(pat->stdErr);
     pat->fdsMain[0].fd = pat->stdOut[0];
     pat->fdsMain[0].events = POLLIN;
+    pat->fdsMain[1].fd = pat->stdErr[0];
+    pat->fdsMain[1].events = POLLIN;
 }
 
 void exitStd(pat_t *pat, int i) {
