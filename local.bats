@@ -36,9 +36,10 @@ load test_helper
 }
 
 @test "null" {
-  run ./pat -s "\0" echo -e '\0' "\0"
+  run ./pat -s '\0' echo -e "\n" '\0'
   checki 0 <<-FIN
 		\0\0\0 stdout
+
 
 		\0\0\0 exit, status=0
 		FIN
