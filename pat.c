@@ -33,8 +33,9 @@ typedef struct pat_s {
     pollfds_t **pipes;
     int stdOut[2];
     int stdErr[2];
+    int stdExit[2];
     struct pollfd *fdsChild; //Tubes utilisé pour communiquer avec "poll" (stdout, stderr, exit).
-    struct pollfd fdsMain[2];
+    struct pollfd fdsMain[3];
 } pat_t;
 
 void countCmds(pat_t *, char **, int);
@@ -75,7 +76,7 @@ int main(int argc, char *argv[]) {
     }
     pat_t *pat = malloc(sizeof(struct pat_s));
     if(!pat) exitMain(NULL, NULL);
-    *pat = (struct pat_s) {0, "+", 0, NULL, 0, 0, 0, NULL, {0}, {0}, NULL, {0}};
+    *pat = (struct pat_s) {0, "+", 0, NULL, 0, 0, 0, NULL, {0}, {0}, {0}, NULL, {0}};
     if (strcmp(argv[1], "-s") == 0 && strlen(argv[2]) >= 1) {
         pat->delim = argv[2];
         pat->option = 2;
@@ -107,11 +108,13 @@ int main(int argc, char *argv[]) {
             exitStd(pat, 0); //Fermeture des tubes "read (stdin)" du parent.
             close(pat->stdOut[0]);
             close(pat->stdErr[0]);
+            close(pat->stdExit[0]);
             close(STDOUT_FILENO);
             close(STDERR_FILENO);
         } else if(enfant > 0) {
             close(pat->stdOut[1]);
             close(pat->stdErr[1]);
+            close(pat->stdExit[1]);
             printPoll(pat);
             while (waitpid(pid, &pid, 0) != -1) {
                 if (fflush(stdout) != 0) exitMain(pat, NULL);
@@ -210,6 +213,9 @@ void execCmds(pat_t *pat, int i) {
     execvp(pat->newCmd[0], pat->newCmd);
     perror(pat->newCmd[0]);
     free(pat->newCmd);
+    free(pat->fdsChild);
+    for(int j = 0; j < pat->nbrCmds; ++j) free(pat->pipes[j]);
+    free(pat->pipes);
     free(pat);
     _exit(127);
 }
@@ -231,6 +237,7 @@ void pollChild(pat_t *pat, int i) {
 
     int pollStat = 1; //Code de retour de "poll".
     size_t size = 0; //Sert a sortir de la boucle de "poll" si il n'y a pas eu d'événements.
+    char *exit = calloc(1, FILENAME_MAX);
 
     while(pollStat > 0) {
         pollStat = poll(pat->pipes[i]->fdsChild, 3, -1);
@@ -254,8 +261,9 @@ void pollChild(pat_t *pat, int i) {
         }else if (pat->pipes[i]->fdsChild[0].revents & POLLIN) {
             if(fflush(stdout) != 0) exitMain(pat, NULL);
             size = read(pat->pipes[i]->wexpipes[0], buf, sizeof(buf));
-            if(size > 0 && pat->nbrCmds > 1) printf(" exit %d, %s", pat->pipes[i]->numCmd, buf);
-            else if(size > 0) printf(" exit, %s", buf);
+            if(size > 0 && pat->nbrCmds > 1) snprintf(exit, strlen(buf) + 11," exit %d, %s", pat->pipes[i]->numCmd, buf);
+            else if(size > 0) snprintf(exit, strlen(buf) + 11," exit, %s", buf);
+            if(write(pat->stdExit[1], exit, strlen(exit)) == -1) exitMain(pat, NULL);
             if(fflush(stdout) != 0) exitMain(pat, NULL);
         }
         if(size == 0) break;
@@ -266,6 +274,8 @@ void pollChild(pat_t *pat, int i) {
     for(int j = 0; j < pat->nbrCmds; ++j) free(pat->pipes[j]);
     close(pat->stdOut[0]);
     close(pat->stdErr[0]);
+    close(pat->stdExit[0]);
+    free(exit);
     free(pat->pipes);
     free(pat->fdsChild);
     _exit(0);
@@ -281,7 +291,7 @@ void printPoll(pat_t *pat) {
     char *string = calloc(1, FILENAME_MAX);
 
     while(pollStat > 0) {
-        pollStat = poll(pat->fdsMain, 2, -1);
+        pollStat = poll(pat->fdsMain, 3, -1);
         char buf[FILENAME_MAX] = {0};
         if(fflush(stdout) != 0) exitMain(pat, sep); //Vider stdout au cas ou la derniere sortie n'avait pas de saut de ligne.
 
@@ -292,13 +302,17 @@ void printPoll(pat_t *pat) {
                 snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
             else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
             if(fflush(stdout) != 0) exitMain(pat, sep);
-
-        } else if(pat->fdsMain[1].revents & POLLIN) {
+        }
+        if(pat->fdsMain[1].revents & POLLIN) {
             size = read(pat->stdErr[0], buf, sizeof(buf));
             if (size > 0) fixLine(buf, string, sep);
             if (size > 0 && buf[size - 1] != '\n')
                 snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
             else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
+        }
+        if(pat->fdsMain[2].revents & POLLIN) {
+            size = read(pat->stdExit[0], buf, sizeof(buf));
+            if (size > 0) printf("%s%s", sep, buf);
         }
         if(fflush(stdout) != 0) exitMain(pat, sep);
         if(size > 0) strncpy(string, buf, strlen(buf));
@@ -339,10 +353,13 @@ void pPoll(pat_t *pat) {
     }
     pipe(pat->stdOut);
     pipe(pat->stdErr);
+    pipe(pat->stdExit);
     pat->fdsMain[0].fd = pat->stdOut[0];
     pat->fdsMain[0].events = POLLIN;
     pat->fdsMain[1].fd = pat->stdErr[0];
     pat->fdsMain[1].events = POLLIN;
+    pat->fdsMain[2].fd = pat->stdExit[0];
+    pat->fdsMain[2].events = POLLIN;
 }
 
 void exitStd(pat_t *pat, int i) {
