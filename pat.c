@@ -302,19 +302,19 @@ void printPoll(pat_t *pat) {
                 snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
             else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
             if(fflush(stdout) != 0) exitMain(pat, sep);
-        }
-        if(pat->fdsMain[1].revents & POLLIN) {
+
+        } else if(pat->fdsMain[1].revents & POLLIN) {
             size = read(pat->stdErr[0], buf, sizeof(buf));
             if (size > 0) fixLine(buf, string, sep);
             if (size > 0 && buf[size - 1] != '\n')
                 snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
             else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
-        }
-        if(pat->fdsMain[2].revents & POLLIN) {
+            if(fflush(stdout) != 0) exitMain(pat, sep);
+
+        } else if(pat->fdsMain[2].revents & POLLIN) {
             size = read(pat->stdExit[0], buf, sizeof(buf));
             if (size > 0) printf("%s%s", sep, buf);
         }
-        if(fflush(stdout) != 0) exitMain(pat, sep);
         if(size > 0) strncpy(string, buf, strlen(buf));
         if(size == 0) break;
         size = 0;
