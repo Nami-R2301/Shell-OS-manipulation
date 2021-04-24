@@ -45,3 +45,12 @@ load test_helper
 		FIN
 }
 
+@test "Dupliquer" {
+  run ./pat -s "##" echo "###### stdout"
+  checki 0 <<-FIN
+		###### stdout
+		###### stdout
+		###### exit, status=0
+		FIN
+}
+

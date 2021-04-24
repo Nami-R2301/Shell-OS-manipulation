@@ -15,8 +15,8 @@
  * ********************* */
 
 typedef struct pollfds_s {
-    int numCmd;
-    int wOpipes[2];
+    int numCmd; //Numero de la commande en cours de lecture (poll).
+    int wOpipes[2]; //
     int wEpipes[2];
     int wexpipes[2];
     struct pollfd fdsChild[3];
