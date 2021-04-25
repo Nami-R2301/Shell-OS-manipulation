@@ -391,7 +391,7 @@ void exitMain(pat_t *pat, char *heapV) {
 void freeing(pat_t *pat, char *heapV) {
 
     free(heapV); //Heap réfere a une variable alloué sur le tas. Si la fonction appelante n'en as pas heap, = NULL.
-    free(pat->newCmd);
+    free(pat->newCmd); //Commande lue.
     for(int j = 0; j < pat->nbrCmds; ++j) free(pat->pipes[j]); //Fermer tous les tubes de chaque commandes.
     free(pat->pipes);
     free(pat->fdsChild); //polling() vers printPoll.
