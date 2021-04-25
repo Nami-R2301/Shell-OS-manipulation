@@ -1,11 +1,10 @@
-#include <stdio.h>
-#include <string.h>
-#include <signal.h>
-#include <unistd.h>
-#include <wait.h>
-#include <stdlib.h>
-#include <sys/poll.h>
-#include <stdbool.h>
+#include <stdio.h> //printf, snprintf, sprintf, fflush, stdout, stderr, FILENAME_MAX, perror 
+#include <string.h> //strtok, strcmp, strstr et strlen, strncat, strcat.
+#include <unistd.h> //fork, dup, dup2, pipe, execvp, write, read, close, STDOUT_FILENO, STDERR_FILENO.
+#include <wait.h>  //waitid, waitpid, siginfo_t, 
+#include <stdlib.h> //malloc, calloc, free.
+#include <sys/poll.h> //poll, pollfd_s, pollfds_t
+#include <stdbool.h> //bool
 
 /* ********************* *
  * TP2 INF3173 H2021
@@ -34,9 +33,9 @@ typedef struct pat_s {
     pollfds_t **pipes; //Pointeur de tableau de tubes contenant wopipes[], wepipes[] et wexpipes[] (trois par commande).
 
     //Tubes servant a communiquer les données pollé dans polling() vers la fonction printfpoll.
-    int stdOut[2]; //Pour stdout.
-    int stdErr[2]; //Pour stderr.
-    int stdExit[2]; //Pour les codes de retours.
+    int stdOut[2]; //Pour stdout (printPoll()).
+    int stdErr[2]; //Pour stderr (printPoll()).
+    int stdExit[2]; //Pour les codes de retours (printPoll()).
     struct pollfd *fdsChild; //Tubes utilisé pour communiquer avec "poll" (stdout, stderr, exit).
     struct pollfd fdsMain[3]; //Descripteurs de fichiers qui recevrons les données des tubes lus dans polling() (**pipes).
 } pat_t;
@@ -47,7 +46,7 @@ void countCmds(pat_t *, char **, int);
 //Sert a lire les commandes pour l'exécution de celles-ci dans l'enfant.
 void readCmds(char **, const int *, pat_t *);
 
-//Sert a exécuter les commandes avec execvp.
+//Sert a exécuter les commandes avec execvp à l'indice spécifié.
 void execCmds(pat_t *, int);
 
 //Sert a préparer les tubes et les descripteurs de fichiers pour la communication entre "poll" et l'enfant.
@@ -69,6 +68,7 @@ void checkReps(char *buf, char *string, char *sep);
 void printExit(int , pat_t *, int);
 
 //Sert a généraliser les étapes de fermeture du programme en cas d'erreur (exit(1)).
+//Si la fonction appelante contient une variable dynamique alloué, celle-ci sera mise comme deuxième argument. 
 void exitMain(pat_t *, char *);
 
 //Sert a généraliser les étapes de fermeture des tubes dépendemment du thread appelant (parent/enfant/neveu).
@@ -80,14 +80,14 @@ void freeing(pat_t *, char *);
 int main(int argc, char *argv[]) {
 
     //Si l'argument est valide
-    if (argc < 2 || (argc == 2 && strcmp(argv[1], "-s") == 0) || (argc == 3 && strcmp(argv[1], "-s") == 0)) {
+    if(argc < 2 || (argc == 2 && strcmp(argv[1], "-s") == 0) || (argc == 3 && strcmp(argv[1], "-s") == 0)) {
         fprintf(stderr, "Erreur! : Mauvais argument(s) et/ou commande(s)\n");
         return 1;
     }
     pat_t *pat = malloc(sizeof(struct pat_s));
     if(!pat) exitMain(NULL, NULL);
     *pat = (struct pat_s) {0, "+", 0, NULL, 0, 0, 0, NULL, {0}, {0}, {0}, NULL, {0}};
-    if (strcmp(argv[1], "-s") == 0 && strlen(argv[2]) >= 1) {
+    if(strcmp(argv[1], "-s") == 0 && strlen(argv[2]) >= 1) {
         pat->delim = argv[2];
         pat->option = 2; //-s + le séparateur, donc argv[+2].
     }
@@ -113,12 +113,12 @@ int main(int argc, char *argv[]) {
                 exitMain(pat, NULL);
             }
             if(close(pat->stdOut[1]) == -1 || close(pat->stdErr[1]) == -1) exitMain(pat, NULL);
-            for (int i = 0; i < pat->nbrCmds; ++i) {
+            for(int i = 0; i < pat->nbrCmds; ++i) {
                 neveu = fork();
                 if(neveu == -1) exitMain(pat, NULL);
                 if(neveu == 0) polling(pat, i); //Attentes des événements de l'enfant.
             }
-            if (fflush(stdout) != 0) exitMain(pat, NULL);
+            if(fflush(stdout) != 0) exitMain(pat, NULL);
             exitStd(pat, 0); //Fermeture des tubes "read (stdin)" du parent.
             exitStd(pat, 2); //Fermeture des tubes stdOut, stdErr et stdExit a l'indice 0.
             if(close(STDOUT_FILENO) == -1 || close(STDERR_FILENO) == -1) exitMain(pat, NULL);
@@ -156,7 +156,7 @@ void countCmds(pat_t *pat, char **argv, const int argc) {
                 pat->nbrCmds++;
             }
             arg = true;
-        } else arg = false;
+        } else arg = false; //Sinon, le prochain indice est forcément une commande.
     }
 }
 
@@ -166,8 +166,8 @@ void readCmds(char **argv, const int *args, pat_t *pat) {
     pat->newCmd = calloc(*args - (pat->option + 1), FILENAME_MAX); //Pour maximum robustesse.
     if(!pat->newCmd) exitMain(pat, NULL);
 
-    for (int i = 0; i + pat->posDelD < *args; ++i) {
-        if (strcmp(argv[i + pat->posDelD], pat->delim) != 0) {
+    for(int i = 0; i + pat->posDelD < *args; ++i) {
+        if(strcmp(argv[i + pat->posDelD], pat->delim) != 0) {
             pat->newCmd[i] = (char *) {""}; //Pour calmer Valgrind.
             pat->newCmd[i] = argv[i + pat->posDelD];
             pat->posDelF++;
@@ -183,26 +183,26 @@ int forking(pat_t *pat, int argc, char **argv) {
     int num; //Numéro de commande pour wexpipe[] (code de retour) dans printfExit().
     siginfo_t info = {0}; //Utilisé pour déterminer quelle commande (pid) a fini.
     pid_t neveu[pat->nbrCmds]; //Tableau de pids utilisé pour stocker chaque pid de commande qui c'est exécuté lors de la boucle.
-    for (int i = 1 + pat->option; i < argc; ++i) {
+    for(int i = 1 + pat->option; i < argc; ++i) {
         pat->posDelF = 0;
         pat->posDelD = i; //Indice de début de commande.
         readCmds(argv, &argc, pat);
         i += pat->posDelF; //Indice de fin de commande.
         neveu[nbrCmds] = fork(); //Rajoute le pid courant.
-        if (neveu[nbrCmds] == -1) exitMain(pat, NULL);
-        if (neveu[nbrCmds] == 0) execCmds(pat, nbrCmds);
+        if(neveu[nbrCmds] == -1) exitMain(pat, NULL);
+        if(neveu[nbrCmds] == 0) execCmds(pat, nbrCmds);
         nbrCmds++;
     }
     while(waitid(P_ALL, 0, &info, WEXITED | WSTOPPED) != -1) { //Parent des neveux (Enfant) attend que tous les neveux terminent.
         for(int i = 0; i < nbrCmds; ++i) {
-            if(neveu[i] == info.si_pid) {
+            if(neveu[i] == info.si_pid) { //Vérifier quel neveu (numéro) est associé avec ce pid.
                 num = i;
-                if (info.si_code == CLD_KILLED || info.si_code == CLD_STOPPED) {
+                if(info.si_code == CLD_KILLED || info.si_code == CLD_STOPPED) {
                     pat->sig = info.si_status;
                     retour += 128 + pat->sig;
-                } else if (info.si_code == CLD_EXITED) retour += info.si_status;
+                } else if(info.si_code == CLD_EXITED) retour += info.si_status;
                 printExit(info.si_status, pat, num); //Envoie vers "pat->stdExit[1]".
-                pat->sig = 0;
+                pat->sig = 0; //Préparer pour le prochain (potentiel) signal.
             }
         }
     }
@@ -246,7 +246,7 @@ void polling(pat_t *pat, int i) {
         char buf[FILENAME_MAX] = {0};
         if(fflush(stdout) != 0) exitMain(pat, exit); //Vider stdout au cas ou la derniere sortie n'avait pas de saut de ligne.
 
-        if (pat->pipes[i]->fdsChild[1].revents & POLLIN) { //Données lues de la sortie standard (wopipe[1]).
+        if(pat->pipes[i]->fdsChild[1].revents & POLLIN) { //Données lues de la sortie standard (wopipe[1]).
             if(fflush(stdout) != 0) exitMain(pat, exit);
             size = read(pat->pipes[i]->wOpipes[0], buf, sizeof(buf));
             if(size == -1) exitMain(pat, exit);
@@ -254,7 +254,7 @@ void polling(pat_t *pat, int i) {
             if(size > 0 && pat->nbrCmds == 1) printf(" stdout\n%s", buf);
             if(fflush(stdout) != 0) exitMain(pat, exit);
 
-        }else if (pat->pipes[i]->fdsChild[2].revents & POLLIN) { //Données lues de la sortie standard d'erreur (wepipe[1]).
+        }else if(pat->pipes[i]->fdsChild[2].revents & POLLIN) { //Données lues de la sortie standard d'erreur (wepipe[1]).
             if(fflush(stdout) != 0) exitMain(pat, exit);
             size = read(pat->pipes[i]->wEpipes[0], buf, sizeof(buf));
             if(size == -1) exitMain(pat, exit);
@@ -262,7 +262,7 @@ void polling(pat_t *pat, int i) {
             else if(size > 0) fprintf(stderr," stderr\n%s", buf);
             if(fflush(stdout) != 0) exitMain(pat, exit);
 
-        }else if (pat->pipes[i]->fdsChild[0].revents & POLLIN) { //Données lues du tube de code de retour (wexpipe[1]).
+        }else if(pat->pipes[i]->fdsChild[0].revents & POLLIN) { //Données lues du tube de code de retour (wexpipe[1]).
             if(fflush(stdout) != 0) exitMain(pat, exit);
             size = read(pat->pipes[i]->wexpipes[0], buf, sizeof(buf));
             if(size == -1) exitMain(pat, exit);
@@ -291,16 +291,16 @@ void printPoll(pat_t *pat) {
     char *string = calloc(1, FILENAME_MAX); //Contient la sortie précédente pour compareravec la courante.
 
     while(pollStat > 0) {
-        pollStat = poll(pat->fdsMain, 3, -1);
+        pollStat = poll(pat->fdsMain, 3, -1); //Pas de timeout (infinie). 
         if(pollStat == -1) exitMain(pat, sep);
-        char buf[FILENAME_MAX] = {0};
+        char buf[FILENAME_MAX] = {0}; //Buffer contenant toutes les données.
         if(fflush(stdout) != 0) exitMain(pat, sep); //Vider stdout au cas ou la derniere sortie n'avait pas de saut de ligne.
 
-        if (pat->fdsMain[0].revents & POLLIN) { //Données lues de la sortie standard (stdOut[1]/STDOUT_FILENO).
+        if(pat->fdsMain[0].revents & POLLIN) { //Données lues de la sortie standard (stdOut[1]/STDOUT_FILENO).
             size = read(pat->stdOut[0], buf, sizeof(buf));
             if(size == -1) exitMain(pat, sep);
-            if (size > 0) checkReps(buf, string, sep); //Vérifier si il y a une répétition.
-            if (size > 0 && buf[size - 1] != '\n')
+            if(size > 0) checkReps(buf, string, sep); //Vérifier si il y a une répétition.
+            if(size > 0 && buf[size - 1] != '\n')
                 snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
             else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
             if(fflush(stdout) != 0) exitMain(pat, sep);
@@ -308,8 +308,8 @@ void printPoll(pat_t *pat) {
         } else if(pat->fdsMain[1].revents & POLLIN) { //Données lues de la sortie standard d'erreur (stdErr[1]/STDERR_FILENO).
             size = read(pat->stdErr[0], buf, sizeof(buf));
             if(size == -1) exitMain(pat, sep);
-            if (size > 0) checkReps(buf, string, sep); //Vérifier si il y a une répétition.
-            if (size > 0 && buf[size - 1] != '\n')
+            if(size > 0) checkReps(buf, string, sep); //Vérifier si il y a une répétition.
+            if(size > 0 && buf[size - 1] != '\n')
                 snprintf(sep, strlen(pat->delim) * 4 + 2, "\n%s%s%s%s", pat->delim, pat->delim, pat->delim, pat->delim);
             else snprintf(sep, strlen(pat->delim) * 4 + 2, "%s%s%s", pat->delim, pat->delim, pat->delim);
             if(fflush(stdout) != 0) exitMain(pat, sep);
@@ -323,7 +323,7 @@ void printPoll(pat_t *pat) {
         if(size == 0) break; //Quitter si rien n'a été lu.
         size = 0;
     }
-    if (fflush(stdout) != 0) exitMain(pat, sep);
+    if(fflush(stdout) != 0) exitMain(pat, sep);
     free(sep);
     free(string);
     if(pollStat == -1) exitMain(pat, sep);
@@ -341,13 +341,13 @@ void checkReps(char *buf, char *string, char *sep) {
     if(strcmp(string, "") != 0 && strstr(string, retour)) {
         point = strtok(NULL, "\0"); //Si il y a une correspondance, pointer seulement vers le reste de la chaine.
         if(point) printf("%s", point);
-    } else printf("%s%s", sep, buf); //Sinon, afficher les séoarateur avec la chaine.
+    } else printf("%s%s", sep, buf); //Sinon, afficher les séparateur avec la chaine.
     free(retour);
 }
 
 void pPoll(pat_t *pat) {
 
-    for (int i = 0; i < pat->nbrCmds; ++i) {
+    for(int i = 0; i < pat->nbrCmds; ++i) {
         pat->pipes[i]->fdsChild[0].fd = pat->pipes[i]->wexpipes[0]; //Bout du tube qui lit "read" ([0]).
         pat->pipes[i]->fdsChild[0].events = POLLIN; //Si il y a des données a lire.
         pat->pipes[i]->fdsChild[1].fd = pat->pipes[i]->wOpipes[0];
@@ -392,7 +392,7 @@ void freeing(pat_t *pat, char *heapV) {
 
     free(heapV); //Heap réfere a une variable alloué sur le tas. Si la fonction appelante n'en as pas heap, = NULL.
     free(pat->newCmd);
-    for(int j = 0; j < pat->nbrCmds; ++j) free(pat->pipes[j]);
+    for(int j = 0; j < pat->nbrCmds; ++j) free(pat->pipes[j]); //Fermer tous les tubes de chaque commandes.
     free(pat->pipes);
     free(pat->fdsChild);
     free(pat); //Si la fonction appelante n'a pas la structure "pat", celle-ci peut mettre NULL a sa place.
