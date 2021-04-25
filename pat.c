@@ -151,7 +151,7 @@ void countCmds(pat_t *pat, char **argv, const int argc) {
                 pat->pipes[pat->nbrCmds] = malloc(sizeof(pollfds_t));
                 pat->pipes[pat->nbrCmds]->numCmd = pat->nbrCmds + 1; //Identifiant de chaque commande.
                 if(pipe(pat->pipes[pat->nbrCmds]->wexpipes) == -1 || pipe(pat->pipes[pat->nbrCmds]->wOpipes) == -1
-                || pipe(pat->pipes[pat->nbrCmds]->wEpipes) == -1)
+                   || pipe(pat->pipes[pat->nbrCmds]->wEpipes) == -1)
                     exitMain(pat, NULL);
                 pat->nbrCmds++;
             }
