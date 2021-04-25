@@ -394,6 +394,6 @@ void freeing(pat_t *pat, char *heapV) {
     free(pat->newCmd);
     for(int j = 0; j < pat->nbrCmds; ++j) free(pat->pipes[j]); //Fermer tous les tubes de chaque commandes.
     free(pat->pipes);
-    free(pat->fdsChild);
+    free(pat->fdsChild); //polling().
     free(pat); //Si la fonction appelante n'a pas la structure "pat", celle-ci peut mettre NULL a sa place.
 }
